@@ -145,7 +145,9 @@ describe("configureMCP", () => {
     const consoleSpy = jest.spyOn(console, "log").mockImplementation();
     mockedFs.existsSync.mockReturnValue(false);
     mockedInquirer.prompt.mockResolvedValueOnce({ create: true });
-    (mockedFs.ensureDir as jest.Mock).mockRejectedValueOnce(new Error("Permission denied"));
+    (mockedFs.ensureDir as unknown as jest.Mock).mockRejectedValueOnce(
+      new Error("Permission denied")
+    );
 
     await configureMCP("vscode");
 
@@ -194,26 +196,25 @@ describe("configureMCP", () => {
     });
   });
 
-  it("should return null for Claude Desktop on unsupported platform", async () => {
+  it("should use Linux path for Claude Desktop on linux", async () => {
     const originalPlatform = process.platform;
     Object.defineProperty(process, "platform", {
       value: "linux",
       writable: true,
     });
 
-    const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    mockedInquirer.prompt.mockResolvedValueOnce({ inject: false });
 
     await configureMCP("claude");
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringMatching(/Could not determine config path/)
+    expect(mockedFs.readJSON).toHaveBeenCalledWith(
+      expect.stringMatching(/\.config[\\\/]Claude[\\\/]claude_desktop_config\.json/)
     );
 
     Object.defineProperty(process, "platform", {
       value: originalPlatform,
       writable: true,
     });
-    consoleSpy.mockRestore();
   });
 
   it("should return null for unknown client", async () => {
@@ -251,5 +252,454 @@ describe("configureMCP", () => {
       }),
       expect.anything()
     );
+  });
+
+  // New client tests
+
+  it("should configure Amp with amp.mcpServers key", async () => {
+    mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+    await configureMCP("amp");
+
+    expect(mockedFs.writeJSON).toHaveBeenCalledWith(
+      expect.stringMatching(/\.config[\\\/]amp[\\\/]settings\.json/),
+      expect.objectContaining({
+        "amp.mcpServers": expect.objectContaining({
+          "clix-mcp-server": expect.anything(),
+        }),
+      }),
+      expect.anything()
+    );
+  });
+
+  it("should configure Kiro with project-level config", async () => {
+    mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+    await configureMCP("kiro");
+
+    expect(mockedFs.writeJSON).toHaveBeenCalledWith(
+      expect.stringMatching(/\.kiro[\\\/]settings[\\\/]mcp\.json/),
+      expect.objectContaining({
+        mcpServers: expect.objectContaining({
+          "clix-mcp-server": expect.anything(),
+        }),
+      }),
+      expect.anything()
+    );
+  });
+
+  it("should configure Amazon Q with home directory config", async () => {
+    mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+    await configureMCP("amazonq");
+
+    expect(mockedFs.writeJSON).toHaveBeenCalledWith(
+      expect.stringMatching(/\.aws[\\\/]amazonq[\\\/]agents[\\\/]default\.json/),
+      expect.objectContaining({
+        mcpServers: expect.objectContaining({
+          "clix-mcp-server": expect.anything(),
+        }),
+      }),
+      expect.anything()
+    );
+  });
+
+  it("should auto-configure Codex with TOML format", async () => {
+    const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    (mockedFs.readFile as unknown as jest.Mock).mockResolvedValue("[mcp_servers]\n");
+    (mockedFs.writeFile as unknown as jest.Mock).mockResolvedValue(undefined);
+    mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+    await configureMCP("codex");
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/~\/\.codex\/config\.toml/));
+    expect(mockedFs.writeFile).toHaveBeenCalledWith(
+      expect.stringMatching(/config\.toml/),
+      expect.stringContaining("clix-mcp-server"),
+      "utf-8"
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  it("should auto-configure OpenCode with custom JSON format", async () => {
+    const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    mockedFs.readJSON.mockResolvedValue({ $schema: "https://opencode.ai/config.json", mcp: {} });
+    mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+    await configureMCP("opencode");
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/opencode\.json/));
+    expect(mockedFs.writeJSON).toHaveBeenCalledWith(
+      expect.stringMatching(/opencode\.json/),
+      expect.objectContaining({
+        mcp: expect.objectContaining({
+          "clix-mcp-server": expect.objectContaining({
+            type: "local",
+            enabled: true,
+          }),
+        }),
+      }),
+      expect.anything()
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  it("should create empty Amp config with amp.mcpServers key when file missing", async () => {
+    mockedFs.existsSync.mockReturnValue(false);
+    mockedInquirer.prompt.mockResolvedValueOnce({ create: true });
+    mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+    await configureMCP("amp");
+
+    // First call should create empty config with amp.mcpServers
+    expect(mockedFs.writeJSON).toHaveBeenCalledWith(
+      expect.stringMatching(/settings\.json/),
+      expect.objectContaining({ "amp.mcpServers": {} }),
+      expect.anything()
+    );
+  });
+
+  it("should handle Amp config with existing amp.mcpServers containing clix-mcp-server", async () => {
+    mockedFs.readJSON.mockResolvedValue({
+      "amp.mcpServers": { "clix-mcp-server": { command: "test" } },
+    });
+
+    const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+
+    await configureMCP("amp");
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/already configured/));
+    expect(mockedFs.writeJSON).not.toHaveBeenCalled();
+
+    consoleSpy.mockRestore();
+  });
+
+  // ============================================================================
+  // Codex TOML Edge Cases
+  // ============================================================================
+
+  describe("Codex TOML configuration", () => {
+    it("should create new Codex config file when not exists and user confirms", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      mockedFs.existsSync.mockReturnValue(false);
+      (mockedFs.ensureDir as unknown as jest.Mock).mockResolvedValue(undefined);
+      (mockedFs.writeFile as unknown as jest.Mock).mockResolvedValue(undefined);
+      mockedInquirer.prompt.mockResolvedValueOnce({ create: true });
+      mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+      await configureMCP("codex");
+
+      expect(mockedFs.ensureDir).toHaveBeenCalled();
+      expect(mockedFs.writeFile).toHaveBeenCalledTimes(2); // Create + inject
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/Created config file/));
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should skip Codex config when user declines to create file", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      mockedFs.existsSync.mockReturnValue(false);
+      mockedInquirer.prompt.mockResolvedValueOnce({ create: false });
+
+      await configureMCP("codex");
+
+      expect(mockedFs.writeFile).not.toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/Skipping MCP configuration/));
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should handle error when creating Codex config file fails", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      mockedFs.existsSync.mockReturnValue(false);
+      mockedInquirer.prompt.mockResolvedValueOnce({ create: true });
+      (mockedFs.ensureDir as unknown as jest.Mock).mockRejectedValueOnce(
+        new Error("Permission denied")
+      );
+
+      await configureMCP("codex");
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/Failed to create config file/)
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should handle TOML parse error for Codex", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      (mockedFs.readFile as unknown as jest.Mock).mockRejectedValueOnce(new Error("Invalid TOML"));
+
+      await configureMCP("codex");
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/Failed to parse existing config TOML/)
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should initialize mcp_servers when not present in Codex config", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      // Config without mcp_servers key
+      (mockedFs.readFile as unknown as jest.Mock).mockResolvedValue("");
+      (mockedFs.writeFile as unknown as jest.Mock).mockResolvedValue(undefined);
+      mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+      await configureMCP("codex");
+
+      expect(mockedFs.writeFile).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining("clix-mcp-server"),
+        "utf-8"
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should skip when Codex already has clix-mcp-server configured", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      const tomlContent = `[mcp_servers]
+[mcp_servers.clix-mcp-server]
+command = "npx"
+args = ["-y", "@clix-so/clix-mcp-server@latest"]
+`;
+      (mockedFs.readFile as unknown as jest.Mock).mockResolvedValue(tomlContent);
+
+      await configureMCP("codex");
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/already configured/));
+      expect(mockedFs.writeFile).not.toHaveBeenCalled();
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should not inject when user declines for Codex", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      (mockedFs.readFile as unknown as jest.Mock).mockResolvedValue("[mcp_servers]\n");
+      mockedInquirer.prompt.mockResolvedValueOnce({ inject: false });
+
+      await configureMCP("codex");
+
+      expect(mockedFs.writeFile).not.toHaveBeenCalled();
+
+      consoleSpy.mockRestore();
+    });
+  });
+
+  // ============================================================================
+  // OpenCode Edge Cases
+  // ============================================================================
+
+  describe("OpenCode configuration", () => {
+    it("should create new OpenCode config file when not exists and user confirms", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      mockedFs.existsSync.mockReturnValue(false);
+      mockedFs.writeJSON.mockResolvedValue(undefined);
+      mockedInquirer.prompt.mockResolvedValueOnce({ create: true });
+      mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+      await configureMCP("opencode");
+
+      // Two calls: first creates empty config, second adds the MCP server
+      // Note: Jest captures object references, so both calls show the final mutated state
+      expect(mockedFs.writeJSON).toHaveBeenCalledTimes(2);
+      expect(mockedFs.writeJSON).toHaveBeenLastCalledWith(
+        expect.stringMatching(/opencode\.json/),
+        expect.objectContaining({
+          $schema: "https://opencode.ai/config.json",
+          mcp: expect.objectContaining({
+            "clix-mcp-server": expect.anything(),
+          }),
+        }),
+        expect.anything()
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/Created config file/));
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/Added Clix MCP Server/));
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should skip OpenCode config when user declines to create file", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      mockedFs.existsSync.mockReturnValue(false);
+      mockedInquirer.prompt.mockResolvedValueOnce({ create: false });
+
+      await configureMCP("opencode");
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/Skipping MCP configuration/));
+      expect(mockedFs.writeJSON).not.toHaveBeenCalled();
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should handle error when creating OpenCode config file fails", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      mockedFs.existsSync.mockReturnValue(false);
+      mockedInquirer.prompt.mockResolvedValueOnce({ create: true });
+      mockedFs.writeJSON.mockRejectedValueOnce(new Error("Permission denied"));
+
+      await configureMCP("opencode");
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/Failed to create config file/)
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should handle JSON parse error for OpenCode", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      mockedFs.readJSON.mockRejectedValueOnce(new Error("Invalid JSON"));
+
+      await configureMCP("opencode");
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/Failed to parse existing config JSON/)
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should initialize mcp when not present in OpenCode config", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      // Config without mcp key
+      mockedFs.readJSON.mockResolvedValue({ $schema: "https://opencode.ai/config.json" });
+      mockedFs.writeJSON.mockResolvedValue(undefined);
+      mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+      await configureMCP("opencode");
+
+      expect(mockedFs.writeJSON).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          mcp: expect.objectContaining({
+            "clix-mcp-server": expect.anything(),
+          }),
+        }),
+        expect.anything()
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should skip when OpenCode already has clix-mcp-server configured", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      mockedFs.readJSON.mockResolvedValue({
+        $schema: "https://opencode.ai/config.json",
+        mcp: {
+          "clix-mcp-server": {
+            type: "local",
+            command: ["npx", "-y", "@clix-so/clix-mcp-server@latest"],
+            enabled: true,
+          },
+        },
+      });
+
+      await configureMCP("opencode");
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/already configured/));
+      expect(mockedFs.writeJSON).not.toHaveBeenCalled();
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should not inject when user declines for OpenCode", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      mockedFs.readJSON.mockResolvedValue({ $schema: "https://opencode.ai/config.json", mcp: {} });
+      mockedInquirer.prompt.mockResolvedValueOnce({ inject: false });
+
+      await configureMCP("opencode");
+
+      expect(mockedFs.writeJSON).not.toHaveBeenCalled();
+
+      consoleSpy.mockRestore();
+    });
+  });
+
+  // ============================================================================
+  // Platform-specific Tests
+  // ============================================================================
+
+  describe("Platform-specific paths", () => {
+    it("should use Windows path for Amp on win32", async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", {
+        value: "win32",
+        writable: true,
+      });
+
+      const mockUserProfile = "C:\\Users\\Test";
+      process.env.USERPROFILE = mockUserProfile;
+
+      mockedInquirer.prompt.mockResolvedValueOnce({ inject: false });
+
+      await configureMCP("amp");
+
+      expect(mockedFs.readJSON).toHaveBeenCalledWith(
+        expect.stringMatching(/\.config[\\\/]amp[\\\/]settings\.json/)
+      );
+
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        writable: true,
+      });
+    });
+
+    it("should handle unsupported platform for Claude Desktop", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", {
+        value: "freebsd", // Unsupported platform
+        writable: true,
+      });
+
+      await configureMCP("claude");
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/Could not determine config path/)
+      );
+
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        writable: true,
+      });
+      consoleSpy.mockRestore();
+    });
+  });
+
+  // ============================================================================
+  // Error Handling Edge Cases
+  // ============================================================================
+
+  describe("Error handling", () => {
+    it("should handle non-Error objects in error messages", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      mockedFs.readJSON.mockRejectedValueOnce("string error");
+
+      await configureMCP("cursor");
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/string error/));
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should handle Codex writeFile error after successful create", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      mockedFs.existsSync.mockReturnValue(false);
+      (mockedFs.ensureDir as unknown as jest.Mock).mockResolvedValue(undefined);
+      (mockedFs.writeFile as unknown as jest.Mock).mockRejectedValueOnce(new Error("Write failed"));
+      mockedInquirer.prompt.mockResolvedValueOnce({ create: true });
+
+      await configureMCP("codex");
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/Failed to create config file/)
+      );
+
+      consoleSpy.mockRestore();
+    });
   });
 });
