@@ -19,12 +19,10 @@ and configure the Clix MCP Server automatically:
 
 ```bash
 npx @clix-so/clix-agent-skills@latest install <skill-name> --client <your-client>
-# For example, to install integration skill on Cursor:
-# npx @clix-so/clix-agent-skills@latest install integration --client cursor
-# For example, to install event tracking skill on Cursor:
-# npx @clix-so/clix-agent-skills@latest install event-tracking --client cursor
-# For example, to install user management skill on Cursor:
-# npx @clix-so/clix-agent-skills@latest install user-management --client cursor
+# For example, to install skills on Cursor:
+npx @clix-so/clix-agent-skills@latest install integration --client cursor
+npx @clix-so/clix-agent-skills@latest install event-tracking --client cursor
+npx @clix-so/clix-agent-skills@latest install user-management --client cursor
 ```
 
 ### Available Skills
@@ -59,17 +57,19 @@ following command:
 
 To install specific skills:
 
-1. Select `Browse and install plugins`
-2. Select `clix-agent-skills` from the list
+1. Visit Marketplace section in `/plugin`
+2. Select `Browse plugins`
 3. Choose the skills you wish to install
-4. Click `Install` to proceed
+4. Install skill
 
 Alternatively, you can install a single skill directly by running:
 
 ```bash
 /plugin install <plugin-name>@<marketplace-name>
 # For example
-# /plugin install clix-integration@clix-agent-skills
+/plugin install clix-integration@clix-agent-skills
+/plugin install clix-event-tracking@clix-agent-skills
+/plugin install clix-user-management@clix-agent-skills
 ```
 
 Remember to restart Claude Code after installation to load the new skills.
