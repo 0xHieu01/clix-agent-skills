@@ -10,8 +10,7 @@ is a self-contained package that can be loaded and executed by AI clients.
 
 Agent skills in this repository are built on the
 [open agent skills standard](https://agentskills.io/home). Please refer to the
-[official documentation](https://agentskills.io/home#adoption) for up-to-date
-information on supported AI clients. Depending on the AI client you are using, you
+[official documentation](https://agentskills.io/home#adoption) for up-to-date information on supported AI clients. Depending on the AI client you are using, you
 can install skills in different ways.
 
 ### Universal CLI (Recommended)
