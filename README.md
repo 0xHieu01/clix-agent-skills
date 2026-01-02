@@ -1,5 +1,8 @@
 # Agent Skills for Clix
 
+[![npm version](https://img.shields.io/npm/v/%40clix-so%2Fclix-agent-skills.svg?logo=npm&label=npm)](https://www.npmjs.com/package/@clix-so/clix-agent-skills)
+[![npm downloads](https://img.shields.io/npm/dm/%40clix-so%2Fclix-agent-skills.svg)](https://www.npmjs.com/package/@clix-so/clix-agent-skills)
+
 This repository contains a collection of **Agent Skills for Clix**. Each skill
 is a self-contained package that can be loaded and executed by AI clients.
 
@@ -18,11 +21,14 @@ For **Cursor**, **VS Code**, **Claude Desktop**, **OpenCode**, **Goose**,
 and configure the Clix MCP Server automatically:
 
 ```bash
+# Install a specific skill
 npx @clix-so/clix-agent-skills@latest install <skill-name> --client <your-client>
-# For example, to install skills on Cursor:
+# For example, to install a skill on Cursor:
 npx @clix-so/clix-agent-skills@latest install integration --client cursor
-npx @clix-so/clix-agent-skills@latest install event-tracking --client cursor
-npx @clix-so/clix-agent-skills@latest install user-management --client cursor
+
+# Install all available skills at once
+npx @clix-so/clix-agent-skills@latest install --all --client cursor
+# This will install: integration, event-tracking, user-management
 ```
 
 ### Available Skills
@@ -82,7 +88,9 @@ configuration directory:
 
 Or install a specific skill using the command line:
 
-```
+```bash
+$skill-installer install <link-to-skill-folder>
+# For example
 $skill-installer install https://github.com/clix-so/skills/tree/main/skills/integration
 ```
 
