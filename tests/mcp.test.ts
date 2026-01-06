@@ -3,14 +3,17 @@ import fs from "fs-extra";
 import inquirer from "inquirer";
 import os from "os";
 import path from "path";
+import { spawnSync } from "child_process";
 
 jest.mock("fs-extra");
 jest.mock("inquirer");
 jest.mock("os");
+jest.mock("child_process");
 
 const mockedFs = fs as jest.Mocked<typeof fs>;
 const mockedInquirer = inquirer as jest.Mocked<typeof inquirer>;
 const mockedOs = os as jest.Mocked<typeof os>;
+const mockedSpawnSync = spawnSync as unknown as jest.Mock;
 
 describe("configureMCP", () => {
   const mockHome = "/mock/home";
@@ -21,6 +24,7 @@ describe("configureMCP", () => {
     mockedFs.existsSync.mockReturnValue(true);
     mockedFs.readJSON.mockResolvedValue({ mcpServers: {} });
     mockedFs.writeJSON.mockResolvedValue(undefined);
+    mockedSpawnSync.mockReset();
   });
 
   it("should prompt for client if not provided", async () => {
@@ -38,20 +42,179 @@ describe("configureMCP", () => {
     expect(mockedFs.readJSON).not.toHaveBeenCalled();
   });
 
-  it("should inject config if confirmed", async () => {
-    mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+  it("should configure Claude via `claude mcp add` (no config file edits)", async () => {
+    mockedSpawnSync
+      .mockReturnValueOnce({ status: 0, stdout: "help", stderr: "", error: undefined }) // mcp --help
+      .mockReturnValueOnce({ status: 0, stdout: "", stderr: "", error: undefined }) // mcp list
+      .mockReturnValueOnce({ status: 0, stdout: "added", stderr: "", error: undefined }); // mcp add
 
     await configureMCP("claude");
 
-    expect(mockedFs.writeJSON).toHaveBeenCalledWith(
-      expect.stringContaining("claude_desktop_config.json"),
-      expect.objectContaining({
-        mcpServers: expect.objectContaining({
-          "clix-mcp-server": expect.anything(),
-        }),
-      }),
-      expect.anything()
+    expect(mockedFs.writeJSON).not.toHaveBeenCalled();
+    expect(mockedFs.readJSON).not.toHaveBeenCalled();
+
+    expect(mockedSpawnSync).toHaveBeenNthCalledWith(
+      1,
+      "claude",
+      ["mcp", "--help"],
+      expect.objectContaining({ encoding: "utf8" })
     );
+    expect(mockedSpawnSync).toHaveBeenNthCalledWith(
+      2,
+      "claude",
+      ["mcp", "list"],
+      expect.objectContaining({ encoding: "utf8" })
+    );
+    expect(mockedSpawnSync).toHaveBeenNthCalledWith(
+      3,
+      "claude",
+      [
+        "mcp",
+        "add",
+        "--transport",
+        "stdio",
+        "clix-mcp-server",
+        "--",
+        "npx",
+        "-y",
+        "@clix-so/clix-mcp-server@latest",
+      ],
+      expect.objectContaining({ encoding: "utf8" })
+    );
+  });
+
+  it("should skip Claude configuration when Claude CLI cannot be executed (helpRes.error)", async () => {
+    const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    mockedSpawnSync.mockReturnValueOnce({
+      status: 0,
+      stdout: "",
+      stderr: "",
+      error: new Error("ENOENT: claude not found"),
+    });
+
+    await configureMCP("claude");
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/Could not run Claude CLI/));
+    expect(mockedSpawnSync).toHaveBeenCalledTimes(1);
+
+    consoleSpy.mockRestore();
+  });
+
+  it("should skip Claude configuration when Claude CLI does not support `claude mcp` (helpRes.status !== 0)", async () => {
+    const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    mockedSpawnSync.mockReturnValueOnce({
+      status: 1,
+      stdout: "",
+      stderr: "unknown command",
+      error: undefined,
+    });
+
+    await configureMCP("claude");
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/does not appear to support `claude mcp`/)
+    );
+    expect(mockedSpawnSync).toHaveBeenCalledTimes(1);
+
+    consoleSpy.mockRestore();
+  });
+
+  it("should handle Claude CLI add failure gracefully (addRes.status !== 0)", async () => {
+    const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    mockedSpawnSync
+      .mockReturnValueOnce({ status: 0, stdout: "help", stderr: "", error: undefined }) // mcp --help
+      .mockReturnValueOnce({ status: 0, stdout: "", stderr: "", error: undefined }) // mcp list (not present)
+      .mockReturnValueOnce({
+        status: 1,
+        stdout: "stdout msg",
+        stderr: "stderr msg",
+        error: undefined,
+      }); // mcp add fails
+
+    await configureMCP("claude");
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/Failed to configure MCP via Claude Code CLI/)
+    );
+    // ensure it surfaced captured output (stdout/stderr)
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/stdout msg|stderr msg/));
+
+    consoleSpy.mockRestore();
+  });
+
+  it("should attempt Claude mcp add even if `claude mcp list` fails (listRes.status !== 0)", async () => {
+    mockedSpawnSync
+      .mockReturnValueOnce({ status: 0, stdout: "help", stderr: "", error: undefined }) // mcp --help
+      .mockReturnValueOnce({ status: 1, stdout: "", stderr: "list failed", error: undefined }) // mcp list fails
+      .mockReturnValueOnce({ status: 0, stdout: "added", stderr: "", error: undefined }); // mcp add succeeds
+
+    await configureMCP("claude");
+
+    expect(mockedSpawnSync).toHaveBeenCalledTimes(3);
+    expect(mockedSpawnSync).toHaveBeenNthCalledWith(
+      3,
+      "claude",
+      expect.arrayContaining(["mcp", "add"]),
+      expect.objectContaining({ encoding: "utf8" })
+    );
+  });
+
+  it("should print 'No output captured' when Claude mcp add fails without stdout/stderr", async () => {
+    const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    mockedSpawnSync
+      .mockReturnValueOnce({ status: 0, stdout: "help", stderr: "", error: undefined }) // mcp --help
+      .mockReturnValueOnce({ status: 0, stdout: "", stderr: "", error: undefined }) // mcp list (not present)
+      .mockReturnValueOnce({ status: 1, stdout: "", stderr: "", error: undefined }); // mcp add fails with no output
+
+    await configureMCP("claude");
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/No output captured/));
+
+    consoleSpy.mockRestore();
+  });
+
+  it("should skip Claude configuration when already present", async () => {
+    mockedSpawnSync
+      .mockReturnValueOnce({ status: 0, stdout: "help", stderr: "", error: undefined }) // mcp --help
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: "clix-mcp-server",
+        stderr: "",
+        error: undefined,
+      }); // mcp list contains server
+
+    await configureMCP("claude");
+
+    // help + list only; no add
+    expect(mockedSpawnSync).toHaveBeenCalledTimes(2);
+  });
+
+  it("should treat claude-code as an alias for claude", async () => {
+    mockedSpawnSync
+      .mockReturnValueOnce({ status: 0, stdout: "help", stderr: "", error: undefined }) // mcp --help
+      .mockReturnValueOnce({ status: 0, stdout: "", stderr: "", error: undefined }) // mcp list
+      .mockReturnValueOnce({ status: 0, stdout: "added", stderr: "", error: undefined }); // mcp add
+
+    await configureMCP("claude-code");
+
+    expect(mockedFs.writeJSON).not.toHaveBeenCalled();
+    expect(mockedSpawnSync).toHaveBeenNthCalledWith(
+      1,
+      "claude",
+      ["mcp", "--help"],
+      expect.objectContaining({ encoding: "utf8" })
+    );
+  });
+
+  it("should skip MCP configuration when prompt returns no client (no client selected)", async () => {
+    const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    mockedInquirer.prompt.mockResolvedValueOnce({ client: undefined });
+
+    await configureMCP(undefined);
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/No client selected/));
+
+    consoleSpy.mockRestore();
   });
 
   it("should prompt to create file if missing", async () => {
@@ -157,79 +320,6 @@ describe("configureMCP", () => {
     consoleSpy.mockRestore();
   });
 
-  it("should use Windows path for Claude Desktop on win32", async () => {
-    const originalPlatform = process.platform;
-    Object.defineProperty(process, "platform", {
-      value: "win32",
-      writable: true,
-    });
-
-    const mockAppData = "C:\\Users\\Test\\AppData\\Roaming";
-    process.env.APPDATA = mockAppData;
-
-    mockedInquirer.prompt.mockResolvedValueOnce({ inject: false });
-
-    await configureMCP("claude");
-
-    expect(mockedFs.readJSON).toHaveBeenCalledWith(
-      expect.stringMatching(/Claude[\\\/]claude_desktop_config\.json/)
-    );
-
-    Object.defineProperty(process, "platform", {
-      value: originalPlatform,
-      writable: true,
-    });
-  });
-
-  it("should handle missing APPDATA on Windows for Claude Desktop", async () => {
-    const originalPlatform = process.platform;
-    const originalAppData = process.env.APPDATA;
-    Object.defineProperty(process, "platform", {
-      value: "win32",
-      writable: true,
-    });
-
-    delete process.env.APPDATA;
-
-    mockedInquirer.prompt.mockResolvedValueOnce({ inject: false });
-
-    await configureMCP("claude");
-
-    // Should still work with empty string fallback
-    expect(mockedFs.readJSON).toHaveBeenCalledWith(
-      expect.stringMatching(/Claude[\\\/]claude_desktop_config\.json/)
-    );
-
-    Object.defineProperty(process, "platform", {
-      value: originalPlatform,
-      writable: true,
-    });
-    if (originalAppData) {
-      process.env.APPDATA = originalAppData;
-    }
-  });
-
-  it("should use Linux path for Claude Desktop on linux", async () => {
-    const originalPlatform = process.platform;
-    Object.defineProperty(process, "platform", {
-      value: "linux",
-      writable: true,
-    });
-
-    mockedInquirer.prompt.mockResolvedValueOnce({ inject: false });
-
-    await configureMCP("claude");
-
-    expect(mockedFs.readJSON).toHaveBeenCalledWith(
-      expect.stringMatching(/\.config[\\\/]Claude[\\\/]claude_desktop_config\.json/)
-    );
-
-    Object.defineProperty(process, "platform", {
-      value: originalPlatform,
-      writable: true,
-    });
-  });
-
   it("should return null for unknown client", async () => {
     const consoleSpy = jest.spyOn(console, "log").mockImplementation();
 
@@ -267,6 +357,51 @@ describe("configureMCP", () => {
     );
   });
 
+  it("should preserve unrelated JSON config keys when injecting for Cursor", async () => {
+    mockedFs.readJSON.mockResolvedValue({
+      mcpServers: {},
+      editor: { theme: "dark" },
+      nested: { keep: { me: true } },
+    });
+    mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+    await configureMCP("cursor");
+
+    expect(mockedFs.writeJSON).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        editor: { theme: "dark" },
+        nested: { keep: { me: true } },
+        mcpServers: expect.objectContaining({
+          "clix-mcp-server": expect.anything(),
+        }),
+      }),
+      expect.anything()
+    );
+  });
+
+  it("should preserve existing MCP server entries when injecting for Cursor", async () => {
+    mockedFs.readJSON.mockResolvedValue({
+      mcpServers: {
+        "other-server": { command: "node", args: ["server.js"] },
+      },
+    });
+    mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+    await configureMCP("cursor");
+
+    expect(mockedFs.writeJSON).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        mcpServers: expect.objectContaining({
+          "other-server": expect.objectContaining({ command: "node" }),
+          "clix-mcp-server": expect.anything(),
+        }),
+      }),
+      expect.anything()
+    );
+  });
+
   // New client tests
 
   it("should configure Amp with amp.mcpServers key", async () => {
@@ -277,6 +412,27 @@ describe("configureMCP", () => {
     expect(mockedFs.writeJSON).toHaveBeenCalledWith(
       expect.stringMatching(/\.config[\\\/]amp[\\\/]settings\.json/),
       expect.objectContaining({
+        "amp.mcpServers": expect.objectContaining({
+          "clix-mcp-server": expect.anything(),
+        }),
+      }),
+      expect.anything()
+    );
+  });
+
+  it("should preserve unrelated JSON keys when injecting for Amp", async () => {
+    mockedFs.readJSON.mockResolvedValue({
+      "amp.mcpServers": {},
+      otherSettings: { telemetry: false },
+    });
+    mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+    await configureMCP("amp");
+
+    expect(mockedFs.writeJSON).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        otherSettings: { telemetry: false },
         "amp.mcpServers": expect.objectContaining({
           "clix-mcp-server": expect.anything(),
         }),
@@ -697,26 +853,7 @@ args = ["-y", "@clix-so/clix-mcp-server@latest"]
       }
     });
 
-    it("should handle unsupported platform for Claude Desktop", async () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
-      const originalPlatform = process.platform;
-      Object.defineProperty(process, "platform", {
-        value: "freebsd", // Unsupported platform
-        writable: true,
-      });
-
-      await configureMCP("claude");
-
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/Could not determine config path/)
-      );
-
-      Object.defineProperty(process, "platform", {
-        value: originalPlatform,
-        writable: true,
-      });
-      consoleSpy.mockRestore();
-    });
+    // Claude is configured via the Claude Code CLI, so it is not platform-path dependent.
   });
 
   // ============================================================================

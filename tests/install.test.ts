@@ -37,6 +37,33 @@ describe("installSkill", () => {
     mockedFs.copy.mockImplementation(() => Promise.resolve());
   });
 
+  it("should fall back to CWD skills directory when skill is not found under packageRoot", async () => {
+    const consoleWarnSpy = jest.spyOn(console, "warn").mockImplementation();
+
+    const cwdSkillPath = path.resolve(process.cwd(), "skills", "integration");
+
+    mockedFs.existsSync.mockImplementation((p) => {
+      const pathStr = String(p);
+      // Short-circuit package root discovery (not central to this test).
+      if (pathStr.endsWith(`${path.sep}package.json`)) return true;
+
+      // Pretend skill is missing in the first checked location...
+      if (pathStr.includes(`${path.sep}skills${path.sep}integration`)) {
+        return pathStr === cwdSkillPath;
+      }
+
+      return true;
+    });
+
+    await installSkill("integration", {});
+
+    // Should warn about initial path, then proceed using CWD
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringMatching(/trying CWD/i));
+    expect(mockedFs.copy).toHaveBeenCalledWith(cwdSkillPath, expect.any(String));
+
+    consoleWarnSpy.mockRestore();
+  });
+
   it("should install to default .clix/skills when no client is specified", async () => {
     await installSkill("integration", {});
 
@@ -50,6 +77,13 @@ describe("installSkill", () => {
 
   it("should install to .claude/skills when client is claude", async () => {
     await installSkill("integration", { client: "claude" });
+
+    const expectedDest = path.resolve(process.cwd(), ".claude/skills/integration");
+    expect(mockedFs.copy).toHaveBeenCalledWith(expect.any(String), expectedDest);
+  });
+
+  it("should install to .claude/skills when client is claude-code", async () => {
+    await installSkill("integration", { client: "claude-code" });
 
     const expectedDest = path.resolve(process.cwd(), ".claude/skills/integration");
     expect(mockedFs.copy).toHaveBeenCalledWith(expect.any(String), expectedDest);
@@ -119,6 +153,11 @@ describe("installSkill", () => {
   it("should attempt to configure MCP", async () => {
     await installSkill("integration", { client: "cursor" });
     expect(mockedConfigureMCP).toHaveBeenCalledWith("cursor");
+  });
+
+  it("should attempt to configure MCP for Claude Code when client is claude-code", async () => {
+    await installSkill("integration", { client: "claude-code" });
+    expect(mockedConfigureMCP).toHaveBeenCalledWith("claude-code");
   });
 
   it("should handle copy errors gracefully", async () => {
@@ -371,6 +410,30 @@ describe("installAllSkills", () => {
       { name: "event-tracking", isDirectory: () => true },
       { name: "user-management", isDirectory: () => true },
     ]);
+  });
+
+  it("should fall back to process.cwd() when searching for package.json (covers package root traversal)", async () => {
+    const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+
+    // Force findAllSkills() package root detection loop to traverse to filesystem root
+    // and hit the `parent === packageRoot` break branch.
+    mockedFs.existsSync.mockImplementation((p) => {
+      const pathStr = String(p);
+      if (pathStr.endsWith(`${path.sep}package.json`)) return false;
+      return true;
+    });
+
+    await installAllSkills({ client: "cursor" });
+
+    // findAllSkills should read from `${process.cwd()}/skills` after fallback
+    expect(mockedFs.readdir).toHaveBeenCalledWith(path.join(process.cwd(), "skills"), {
+      withFileTypes: true,
+    });
+
+    // Should still install skills normally
+    expect(mockedFs.copy).toHaveBeenCalled();
+
+    consoleSpy.mockRestore();
   });
 
   it("should install all available skills successfully", async () => {
