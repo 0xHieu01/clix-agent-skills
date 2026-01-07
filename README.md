@@ -50,7 +50,7 @@ npx @clix-so/clix-agent-skills@latest install integration --client cursor --glob
 
 # Install all available skills at once (repo root)
 npx @clix-so/clix-agent-skills@latest install --all --client cursor
-# This will install: integration, event-tracking, user-management, personalization
+# This will install: integration, event-tracking, user-management, personalization, api-triggered-campaigns
 
 # Install all available skills globally (system root)
 npx @clix-so/clix-agent-skills@latest install --all --client cursor --global
@@ -66,6 +66,9 @@ npx @clix-so/clix-agent-skills@latest install --all --client cursor --global
 - **clix-personalization**: Author and debug personalization templates for
   message content, deep links/URLs, and audience targeting rules (`user.*`,
   `event.*`, `trigger.*`, `device.*`)
+- **clix-api-triggered-campaigns**: Configure API-triggered campaigns in the
+  console and trigger them from your backend with safe auth, dynamic filters
+  (`trigger.*`), and personalization patterns
 
 **Supported Clients:**
 
@@ -105,6 +108,7 @@ Alternatively, you can install a single skill directly by running:
 /plugin install clix-event-tracking@clix-agent-skills
 /plugin install clix-user-management@clix-agent-skills
 /plugin install clix-personalization@clix-agent-skills
+/plugin install clix-api-triggered-campaigns@clix-agent-skills
 ```
 
 Remember to restart Claude Code after installation to load the new skills.

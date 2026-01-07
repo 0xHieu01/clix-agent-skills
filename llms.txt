@@ -7,6 +7,32 @@ Each entry includes the file path, type, and description for semantic search.
 
 ---
 
+## clix-api-triggered-campaigns
+
+Helps developers configure API-triggered campaigns in the Clix console and trigger them from backend services with safe auth, payload schemas, dynamic audience filters (trigger.*), and personalization best practices. Use when the user mentions transactional notifications, backend-triggered sends, campaign_id trigger APIs, or "API-triggered campaigns".
+
+- [clix-api-triggered-campaigns](https://raw.githubusercontent.com/clix-so/skills/refs/heads/main/skills/api-triggered-campaigns/SKILL.md): Helps developers configure API-triggered campaigns in the Clix console and trigger them from backend services with safe auth, payload schemas, dynamic audience filters (trigger.*), and personalization best practices. Use when the user mentions transactional notifications, backend-triggered sends, campaign_id trigger APIs, or "API-triggered campaigns".
+
+### References
+
+- [Api Contract (Reference)](https://raw.githubusercontent.com/clix-so/skills/refs/heads/main/skills/api-triggered-campaigns/references/api-contract.md): Reference documentation for api-triggered-campaigns skill
+- [Backend Patterns (Reference)](https://raw.githubusercontent.com/clix-so/skills/refs/heads/main/skills/api-triggered-campaigns/references/backend-patterns.md): Reference documentation for api-triggered-campaigns skill
+- [Console Setup (Reference)](https://raw.githubusercontent.com/clix-so/skills/refs/heads/main/skills/api-triggered-campaigns/references/console-setup.md): Reference documentation for api-triggered-campaigns skill
+- [Debugging (Reference)](https://raw.githubusercontent.com/clix-so/skills/refs/heads/main/skills/api-triggered-campaigns/references/debugging.md): Reference documentation for api-triggered-campaigns skill
+- [Personalization And Dynamic Filters (Reference)](https://raw.githubusercontent.com/clix-so/skills/refs/heads/main/skills/api-triggered-campaigns/references/personalization-and-dynamic-filters.md): Reference documentation for api-triggered-campaigns skill
+- [Security And Keys (Reference)](https://raw.githubusercontent.com/clix-so/skills/refs/heads/main/skills/api-triggered-campaigns/references/security-and-keys.md): Reference documentation for api-triggered-campaigns skill
+
+### Examples
+
+- [Trigger Campaign Node (Example)](https://raw.githubusercontent.com/clix-so/skills/refs/heads/main/skills/api-triggered-campaigns/examples/trigger-campaign-node.js): Code example for api-triggered-campaigns skill
+- [Trigger Campaign Python (Example)](https://raw.githubusercontent.com/clix-so/skills/refs/heads/main/skills/api-triggered-campaigns/examples/trigger-campaign-python.py): Code example for api-triggered-campaigns skill
+
+### Scripts
+
+- [Validate Api Trigger Plan (Script)](https://raw.githubusercontent.com/clix-so/skills/refs/heads/main/skills/api-triggered-campaigns/scripts/validate-api-trigger-plan.sh): Utility script for api-triggered-campaigns skill
+
+---
+
 ## clix-event-tracking
 
 Implements Clix event tracking (Clix.trackEvent) with consistent naming, safe property schemas, and campaign-ready validation. Use when adding, reviewing, or debugging event tracking; when configuring event-triggered campaigns; or when the user mentions events, tracking, funnels, or properties — or when the user types `clix-event-tracking`.

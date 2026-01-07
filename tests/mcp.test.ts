@@ -25,6 +25,7 @@ describe("configureMCP", () => {
     mockedFs.readJSON.mockResolvedValue({ mcpServers: {} });
     mockedFs.writeJSON.mockResolvedValue(undefined);
     mockedSpawnSync.mockReset();
+    mockedInquirer.prompt.mockReset();
   });
 
   it("should prompt for client if not provided", async () => {
