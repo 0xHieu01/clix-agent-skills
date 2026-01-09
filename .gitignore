@@ -13,3 +13,6 @@ yarn-error.log*
 
 # Test artifacts
 .tmp-tests
+
+# Package-lock.json
+package-lock.json
