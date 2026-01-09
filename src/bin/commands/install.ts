@@ -130,7 +130,7 @@ export async function installSkill(skillName: string, options: InstallOptions) {
     !options.path &&
     skillName === "integration"
   ) {
-    spinner.info(
+    console.log(
       chalk.yellow(
         "Gemini note: skills were installed to this project's .gemini/skills. " +
           "To make skills available across all projects, re-run with --global (installs to ~/.gemini/skills)."
