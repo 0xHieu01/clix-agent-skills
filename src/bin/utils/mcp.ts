@@ -186,6 +186,14 @@ function getClientConfig(client: string): ClientConfig | null {
   const home = os.homedir();
 
   switch (client.toLowerCase()) {
+    case "gemini":
+      // Gemini CLI stores MCP server configuration in `~/.gemini/settings.json` (user scope)
+      return {
+        path: path.join(home, ".gemini", "settings.json"),
+        configKey: "mcpServers",
+        format: "json",
+      };
+
     case "cursor": {
       // MCP is always configured globally
       return {
@@ -429,17 +437,18 @@ export async function configureMCP(client?: string): Promise<void> {
         name: "client",
         message: "Which AI client are you using?",
         choices: [
-          { name: "Cursor", value: "cursor" },
-          { name: "Claude Code", value: "claude" },
-          { name: "VS Code", value: "vscode" },
-          { name: "Amp", value: "amp" },
-          { name: "Kiro", value: "kiro" },
           { name: "Amazon Q", value: "amazonq" },
+          { name: "Amp", value: "amp" },
+          { name: "Claude Code", value: "claude" },
           { name: "Codex", value: "codex" },
-          { name: "OpenCode", value: "opencode" },
-          { name: "Letta", value: "letta" },
-          { name: "Goose", value: "goose" },
+          { name: "Cursor", value: "cursor" },
+          { name: "Gemini CLI", value: "gemini" },
           { name: "GitHub", value: "github" },
+          { name: "Goose", value: "goose" },
+          { name: "Kiro", value: "kiro" },
+          { name: "Letta", value: "letta" },
+          { name: "OpenCode", value: "opencode" },
+          { name: "VS Code", value: "vscode" },
           { name: "None / Manual", value: "manual" },
         ],
       },

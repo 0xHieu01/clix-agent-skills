@@ -43,6 +43,108 @@ describe("configureMCP", () => {
     expect(mockedFs.readJSON).not.toHaveBeenCalled();
   });
 
+  describe("Gemini CLI configuration", () => {
+    it("should configure Gemini CLI via ~/.gemini/settings.json", async () => {
+      mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+      await configureMCP("gemini");
+
+      const globalPath = path.join(mockHome, ".gemini", "settings.json");
+      expect(mockedFs.readJSON).toHaveBeenCalledWith(globalPath);
+      expect(mockedFs.writeJSON).toHaveBeenCalledWith(
+        globalPath,
+        expect.objectContaining({
+          mcpServers: expect.objectContaining({
+            "clix-mcp-server": expect.objectContaining({
+              command: "npx",
+              args: ["-y", "@clix-so/clix-mcp-server@latest"],
+            }),
+          }),
+        }),
+        expect.anything()
+      );
+    });
+
+    it("should prompt to create ~/.gemini/settings.json when missing and user declines", async () => {
+      const globalPath = path.join(mockHome, ".gemini", "settings.json");
+      mockedFs.existsSync.mockImplementation((p) => String(p) !== globalPath);
+      mockedInquirer.prompt.mockResolvedValueOnce({ create: false });
+
+      await configureMCP("gemini");
+
+      expect(mockedFs.ensureDir).not.toHaveBeenCalled();
+      expect(mockedFs.writeJSON).not.toHaveBeenCalled();
+      expect(mockedFs.readJSON).not.toHaveBeenCalled();
+    });
+
+    it("should create ~/.gemini/settings.json when missing and user confirms, then inject server", async () => {
+      const globalPath = path.join(mockHome, ".gemini", "settings.json");
+      mockedFs.existsSync.mockImplementation((p) => String(p) !== globalPath);
+      mockedInquirer.prompt.mockResolvedValueOnce({ create: true });
+      mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+      await configureMCP("gemini");
+
+      expect(mockedFs.ensureDir).toHaveBeenCalledWith(path.dirname(globalPath));
+      // Create empty config first, then inject (same behavior as other JSON clients)
+      expect(mockedFs.writeJSON).toHaveBeenCalledTimes(2);
+      expect(mockedFs.writeJSON).toHaveBeenNthCalledWith(
+        1,
+        globalPath,
+        expect.objectContaining({ mcpServers: {} }),
+        expect.anything()
+      );
+      expect(mockedFs.writeJSON).toHaveBeenNthCalledWith(
+        2,
+        globalPath,
+        expect.objectContaining({
+          mcpServers: expect.objectContaining({
+            "clix-mcp-server": expect.anything(),
+          }),
+        }),
+        expect.anything()
+      );
+    });
+
+    it("should not prompt to inject when clix-mcp-server is already configured for Gemini", async () => {
+      mockedFs.readJSON.mockResolvedValueOnce({
+        mcpServers: { "clix-mcp-server": { command: "npx", args: ["-y", "already"] } },
+      });
+
+      await configureMCP("gemini");
+
+      // No inject prompt, no writes
+      expect(mockedInquirer.prompt).not.toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ name: "inject" })])
+      );
+      expect(mockedFs.writeJSON).not.toHaveBeenCalled();
+    });
+
+    it("should preserve unrelated keys in ~/.gemini/settings.json when injecting", async () => {
+      mockedFs.readJSON.mockResolvedValueOnce({
+        mcpServers: {},
+        theme: "dark",
+        nested: { keep: true },
+      });
+      mockedInquirer.prompt.mockResolvedValueOnce({ inject: true });
+
+      await configureMCP("gemini");
+
+      const globalPath = path.join(mockHome, ".gemini", "settings.json");
+      expect(mockedFs.writeJSON).toHaveBeenCalledWith(
+        globalPath,
+        expect.objectContaining({
+          theme: "dark",
+          nested: { keep: true },
+          mcpServers: expect.objectContaining({
+            "clix-mcp-server": expect.anything(),
+          }),
+        }),
+        expect.anything()
+      );
+    });
+  });
+
   it("should configure Claude via `claude mcp add` (no config file edits)", async () => {
     mockedSpawnSync
       .mockReturnValueOnce({ status: 0, stdout: "help", stderr: "", error: undefined }) // mcp --help
